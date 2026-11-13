@@ -844,7 +844,7 @@
             broccolis: 0, 
             bpc: 1, 
             bps: 0, 
-            last_saved: 0, // Inicia en 0 para nunca pisar la nube con una partida vacía
+            last_saved: 0,
             shop: JSON.parse(JSON.stringify(defaultShop))
         };
 
@@ -852,7 +852,6 @@
             return currentUser ? `broccoli_save_${currentUser.id}` : 'broccoli_save';
         }
 
-        // Calcula el valor total del imperio (brócolis + mejoras compradas)
         function getGameProgressScore(data) {
             if (!data) return 0;
             let score = Number(data.broccolis) || 0;
@@ -892,7 +891,6 @@
             let cloudData = null;
             let localData = null;
             
-            // 1. Leer memoria local (incluyendo la clave antigua por si tienes tus brócolis ahí en el PC)
             const savedUser = localStorage.getItem(getLocalSaveKey());
             const savedLegacy = localStorage.getItem('broccoli_save');
             
@@ -908,7 +906,6 @@
                 } catch(e) {}
             }
 
-            // 2. Leer desde Supabase
             try {
                 const { data, error } = await db
                     .from('broccoli_saves')
@@ -926,7 +923,6 @@
                 console.error("Excepción al cargar:", err);
             }
             
-            // 3. Comparar el progreso real (quien tenga más brócolis + mejoras compradas gana)
             const localProgress = getGameProgressScore(localData);
             const cloudProgress = getGameProgressScore(cloudData);
             let loadedData = null;
@@ -945,7 +941,6 @@
                 document.getElementById('cloud-status').textContent = '🌱 Partida Nueva';
             }
 
-            // 4. Reconstruir estado y recalcular B/s y B/c
             broccoliData.shop = JSON.parse(JSON.stringify(defaultShop));
             if (loadedData) {
                 broccoliData.broccolis = Number(loadedData.broccolis) || 0;
@@ -1045,7 +1040,6 @@
                 updateBroccoliUI();
                 renderBroccoliShop();
                 
-                // Al comprar una mejora, subimos directamente a la nube
                 saveBroccoliGameToCloud(broccoliData);
             }
         }
@@ -1378,7 +1372,6 @@
                 const { data: fichasData } = await db.from('fichas_pacientes').select('*').eq('user_id', currentUser.id);
                 if (fichasData) savedFichas = fichasData;
 
-                // Precargar el juego silenciosamente al iniciar sesión
                 loadBroccoliGame();
 
                 updateFolderUI();
@@ -1868,22 +1861,32 @@
         
         function addToTemplate() {
             const selectVal = document.getElementById('food-select').value; const grams = parseFloat(document.getElementById('grams-input').value); const meal = document.getElementById('meal-select').value;
-            if(!selectVal || !grams || grams <= 0) return alert("Completa datos.");
+            if(!selectVal || isNaN(grams) || grams < 0) return alert("Completa datos.");
             const food = foodDatabase.find(f => String(f.id) === String(selectVal)); const m = grams / 100;
             let item = { id: Date.now(), meal: meal, foodId: food.id, name: food.alimento, grams: grams };
             nutrientColumns.forEach(col => { item[col] = (food[col] * m); }); currentTemplate.push(item);
             document.getElementById('food-select').value = ""; document.getElementById('grams-input').value = ""; saveFormState(); renderTemplate();
         }
+
+        // CORREGIDO: Ahora permite poner 0 gramos y recalcula todos los macros y micros a 0.0
         function updateItemGrams(id, newGrams) {
-            newGrams = parseFloat(newGrams); if (!newGrams || newGrams <= 0) return;
+            newGrams = parseFloat(newGrams); 
+            if (isNaN(newGrams) || newGrams < 0) return;
             let item = currentTemplate.find(i => i.id === id);
             if (item) {
                 let originalFood = foodDatabase.find(f => String(f.id) === String(item.foodId));
-                if (originalFood) { let m = newGrams / 100; nutrientColumns.forEach(col => { item[col] = (originalFood[col] * m); }); } 
-                else { let ratio = newGrams / item.grams; nutrientColumns.forEach(col => { item[col] = item[col] * ratio; }); }
-                item.grams = newGrams; renderTemplate();
+                if (originalFood) { 
+                    let m = newGrams / 100; 
+                    nutrientColumns.forEach(col => { item[col] = (originalFood[col] * m); }); 
+                } else { 
+                    let ratio = item.grams > 0 ? (newGrams / item.grams) : 0; 
+                    nutrientColumns.forEach(col => { item[col] = item[col] * ratio; }); 
+                }
+                item.grams = newGrams; 
+                renderTemplate();
             }
         }
+
         function removeFromTemplate(id) { currentTemplate = currentTemplate.filter(item => item.id !== id); renderTemplate(); }
         function clearTemplate() { if (currentTemplate.length > 0 && confirm("¿Vaciar toda la tabla de alimentos?")) { currentTemplate = []; renderTemplate(); } }
         function toggleView() { showAllMicros = !showAllMicros; document.getElementById('toggle-view-btn').innerHTML = showAllMicros ? "👁️ Ocultar micronutrientes" : "👁️ Ver todos los micronutrientes"; renderTemplate(); }
