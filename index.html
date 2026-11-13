@@ -1094,6 +1094,9 @@
             if (e.key === 'Enter') register();
         });
 
+        let exchangeTargetItemId = null;
+        let calculatedExchangeGrams = 0;
+
         function openExchangeModal(itemId) {
             exchangeTargetItemId = itemId;
             const item = currentTemplate.find(i => i.id === itemId);
