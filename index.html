@@ -131,6 +131,26 @@
         .game-close { position: absolute; top: 15px; right: 25px; color: #2C3E50; font-size: 30px; font-weight: bold; cursor: pointer; z-index: 100; }
         #cloud-status-bar { position: absolute; top: 15px; left: 15px; display: flex; gap: 8px; align-items: center; }
         #cloud-status { font-size: 12px; background: rgba(0,0,0,0.25); padding: 5px 10px; border-radius: 6px; }
+
+        /* LOGRO: BRÓCOLI DE ORO BRILLANTE */
+        .golden-broccoli {
+            font-size: 22px;
+            display: inline-block;
+            cursor: default;
+            user-select: none;
+            filter: sepia(1) saturate(6) hue-rotate(8deg) brightness(1.15) drop-shadow(0 0 6px #FFD700);
+            animation: goldenBroccoliPulse 2s ease-in-out infinite;
+        }
+        @keyframes goldenBroccoliPulse {
+            0%, 100% {
+                transform: scale(1);
+                filter: sepia(1) saturate(6) hue-rotate(8deg) brightness(1.1) drop-shadow(0 0 5px #FFD700);
+            }
+            50% {
+                transform: scale(1.15);
+                filter: sepia(1) saturate(7) hue-rotate(12deg) brightness(1.35) drop-shadow(0 0 12px #FFD700) drop-shadow(0 0 18px #FFA500);
+            }
+        }
         
         @media (max-width: 768px) { .game-wrapper { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .big-broccoli { font-size: 90px; margin: 15px 0; } }
 
@@ -194,7 +214,10 @@
             <!-- DISPARADOR SECRETO: Haz clic 5 veces rápidas en el brócoli 🌱 -->
             <h1><span onclick="triggerEasterEgg()" style="cursor: pointer; user-select: none;" title="🌱">🌱</span> Gestor Nutricional Clínico</h1>
             <div style="display: flex; gap: 15px; align-items: center;">
-                <span id="user-display" style="font-weight: bold; color: #2ECC71;"></span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span id="golden-broccoli-badge" class="golden-broccoli" style="display: none;" title="🏆 Logro desbloqueado: El Dios del Brócoli">🥦</span>
+                    <span id="user-display" style="font-weight: bold; color: #2ECC71;"></span>
+                </div>
                 <button onclick="logout()" class="btn-delete-small" style="padding: 8px 15px;">Cerrar Sesión</button>
             </div>
         </div>
@@ -966,6 +989,7 @@
             
             broccoliLoaded = true;
             updateBroccoliUI();
+            updateBroccoliAchievement();
             renderBroccoliShop();
         }
 
@@ -1000,6 +1024,13 @@
             broccoliData.last_saved = Date.now();
             updateBroccoliUI();
             renderBroccoliShop();
+        }
+
+        function updateBroccoliAchievement() {
+            const badge = document.getElementById('golden-broccoli-badge');
+            if (!badge) return;
+            const hasMaxUpgrade = broccoliData && broccoliData.shop && broccoliData.shop.u19 && broccoliData.shop.u19.count > 0;
+            badge.style.display = hasMaxUpgrade ? 'inline-block' : 'none';
         }
 
         function updateBroccoliUI() {
@@ -1038,6 +1069,7 @@
                 if (item.type === 'passive') broccoliData.bps += item.val;
                 
                 updateBroccoliUI();
+                updateBroccoliAchievement();
                 renderBroccoliShop();
                 
                 saveBroccoliGameToCloud(broccoliData);
@@ -1289,6 +1321,8 @@
             } else {
                 currentUser = null;
                 broccoliLoaded = false;
+                const badge = document.getElementById('golden-broccoli-badge');
+                if (badge) badge.style.display = 'none';
                 document.getElementById('auth-screen').style.display = 'flex';
                 document.getElementById('app-screen').style.display = 'none';
             }
@@ -1868,22 +1902,36 @@
             document.getElementById('food-select').value = ""; document.getElementById('grams-input').value = ""; saveFormState(); renderTemplate();
         }
 
-        // CORREGIDO: Ahora permite poner 0 gramos y recalcula todos los macros y micros a 0.0
-        function updateItemGrams(id, newGrams) {
-            newGrams = parseFloat(newGrams); 
-            if (isNaN(newGrams) || newGrams < 0) return;
+        function updateItemGrams(id, rawValue, shouldRender = true) {
+            let parsed = parseFloat(String(rawValue).replace(',', '.'));
+            let calcGrams = (isNaN(parsed) || parsed < 0) ? 0 : parsed;
+            
             let item = currentTemplate.find(i => i.id === id);
-            if (item) {
-                let originalFood = foodDatabase.find(f => String(f.id) === String(item.foodId));
-                if (originalFood) { 
-                    let m = newGrams / 100; 
-                    nutrientColumns.forEach(col => { item[col] = (originalFood[col] * m); }); 
-                } else { 
-                    let ratio = item.grams > 0 ? (newGrams / item.grams) : 0; 
-                    nutrientColumns.forEach(col => { item[col] = item[col] * ratio; }); 
-                }
-                item.grams = newGrams; 
-                renderTemplate();
+            if (!item) return;
+
+            let originalFood = foodDatabase.find(f => String(f.id) === String(item.foodId));
+            
+            if (!originalFood && !item._base100 && item.grams > 0) {
+                item._base100 = {};
+                nutrientColumns.forEach(col => {
+                    item._base100[col] = (item[col] / item.grams) * 100;
+                });
+            }
+
+            let sourcePer100 = originalFood || item._base100;
+            if (sourcePer100) {
+                let m = calcGrams / 100;
+                nutrientColumns.forEach(col => { item[col] = (sourcePer100[col] || 0) * m; });
+            } else {
+                let ratio = item.grams > 0 ? (calcGrams / item.grams) : 0;
+                nutrientColumns.forEach(col => { item[col] = (item[col] || 0) * ratio; });
+            }
+
+            item.grams = calcGrams;
+            saveFormState();
+
+            if (shouldRender) {
+                renderTemplate(id, rawValue);
             }
         }
 
@@ -1891,7 +1939,7 @@
         function clearTemplate() { if (currentTemplate.length > 0 && confirm("¿Vaciar toda la tabla de alimentos?")) { currentTemplate = []; renderTemplate(); } }
         function toggleView() { showAllMicros = !showAllMicros; document.getElementById('toggle-view-btn').innerHTML = showAllMicros ? "👁️ Ocultar micronutrientes" : "👁️ Ver todos los micronutrientes"; renderTemplate(); }
 
-        function renderTemplate() {
+        function renderTemplate(activeInputId = null, rawInputValue = null) {
             const basicCols = ['Energía', 'Proteína total', 'Proteínas', 'Lípidos totales', 'Lípidos', 'Hidratos de Carbono', 'Hidratos', 'Fibra'];
             let visibleCols = nutrientColumns.filter(c => basicCols.includes(c));
             if(visibleCols.length === 0) visibleCols = nutrientColumns.slice(0,5);
@@ -1901,7 +1949,7 @@
             let protCol = getCol(['prot']), lipCol = getCol(['lípid', 'lipid', 'grasas']), carbCol = getCol(['hidrat', 'carb']), engCol = getCol(['energ', 'kcal']);
             const patientWeight = parseFloat(document.getElementById('patient-weight').value);
             let totalAtwater = 0; let dailyTotals = {}; colsToRender.forEach(col => dailyTotals[col] = 0);
-            currentTemplate.forEach(item => { colsToRender.forEach(col => { dailyTotals[col] += item[col]; }); });
+            currentTemplate.forEach(item => { colsToRender.forEach(col => { dailyTotals[col] += (item[col] || 0); }); });
             if (protCol && lipCol && carbCol) { totalAtwater = ((dailyTotals[protCol]||0) * 4) + ((dailyTotals[lipCol]||0) * 9) + ((dailyTotals[carbCol]||0) * 4); }
             const thead = document.getElementById('template-head'); let headHtml = `<tr><th class="sticky-col">Alimento</th><th>Cantidad (g)</th>`; colsToRender.forEach(col => headHtml += `<th>${col}</th>`); thead.innerHTML = headHtml + `<th></th></tr>`;
             const tbody = document.getElementById('template-body'); tbody.innerHTML = '';
@@ -1910,20 +1958,21 @@
                 const items = currentTemplate.filter(i => i.meal === meal);
                 if(items.length > 0) {
                     let mealTotals = {}; colsToRender.forEach(col => mealTotals[col] = 0);
-                    items.forEach(item => { colsToRender.forEach(col => { mealTotals[col] += item[col]; }); });
+                    items.forEach(item => { colsToRender.forEach(col => { mealTotals[col] += (item[col] || 0); }); });
                     let mealAtwater = 0; if (protCol && lipCol && carbCol) { mealAtwater = ((mealTotals[protCol]||0) * 4) + ((mealTotals[lipCol]||0) * 9) + ((mealTotals[carbCol]||0) * 4); }
                     let mealPercentageText = ""; if (totalAtwater > 0) { mealPercentageText = `<span class="meal-perc-badge">${((mealAtwater / totalAtwater) * 100).toFixed(1)}% del día</span>`; }
                     
                     tbody.innerHTML += `<tr class="meal-header" ondrop="drop(event, '${meal}')" ondragover="allowDrop(event)"><td colspan="${colsToRender.length + 3}">${meal} ${mealPercentageText}</td></tr>`;
                     
                     items.forEach(item => {
+                        let displayGrams = (activeInputId === item.id && rawInputValue !== null) ? rawInputValue : item.grams;
                         let rowHtml = `<tr draggable="true" ondragstart="drag(event, ${item.id})" ondragend="dragEnd(event)" ondrop="drop(event, '${meal}')" ondragover="allowDrop(event)">
                             <td class="sticky-col">
                                 <span class="drag-handle" title="Mantener pulsado para arrastrar a otra comida" style="cursor: grab; color: #bdc3c7; font-size:18px; margin-right:8px; font-weight:bold;">≡</span>
                                 ${item.name}
                             </td>
-                            <td><input type="number" class="edit-grams" value="${item.grams}" onchange="updateItemGrams(${item.id}, this.value)"></td>`;
-                        colsToRender.forEach(col => { rowHtml += `<td>${item[col].toFixed(1)}</td>`; });
+                            <td><input type="number" id="grams-input-${item.id}" class="edit-grams" value="${displayGrams}" min="0" step="any" oninput="updateItemGrams(${item.id}, this.value, true)" onblur="renderTemplate()"></td>`;
+                        colsToRender.forEach(col => { rowHtml += `<td>${(item[col] || 0).toFixed(1)}</td>`; });
                         tbody.innerHTML += rowHtml + `<td style="white-space: nowrap;"><button class="btn-toggle" style="padding: 4px 6px; font-size: 11px; margin-right: 4px;" onclick="openExchangeModal(${item.id})" title="Intercambiar">🔀</button><button class="btn-delete-small" onclick="removeFromTemplate(${item.id})">X</button></td></tr>`;
                     });
                     let subHtml = `<tr class="subtotals" ondrop="drop(event, '${meal}')" ondragover="allowDrop(event)"><td class="sticky-col" style="text-align:right">Subtotal:` + (mealAtwater > 0 ? `<br><span class="atwater-badge">${mealAtwater.toFixed(1)} kcal</span>` : '') + `</td><td>-</td>`;
@@ -1944,6 +1993,16 @@
                 footHtml += `<td>${cellHtml}</td>`;
             });
             tfoot.innerHTML = footHtml + `<td></td></tr>`;
+
+            if (activeInputId !== null) {
+                const activeEl = document.getElementById(`grams-input-${activeInputId}`);
+                if (activeEl) {
+                    activeEl.focus();
+                    const valStr = activeEl.value;
+                    activeEl.value = '';
+                    activeEl.value = valStr;
+                }
+            }
         }
     </script>
 </body>
